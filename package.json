@@ -1,0 +1,19 @@
+{
+  "name": "calendar-agent",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "body-parser": "^2.2.0",
+    "cookie-parser": "^1.4.7",
+    "express": "^5.1.0",
+    "googleapis": "^156.0.0",
+    "openai": "^5.15.0"
+  }
+}
