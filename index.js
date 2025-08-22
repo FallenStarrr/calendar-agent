@@ -87,6 +87,55 @@ async function calendarClient() {
   return google.calendar({ version: "v3", auth: oAuth2Client });
 }
 
+
+// требует функцию calendarClient(), возвращающую google.calendar({ version: "v3", auth })
+
+export async function createCalendarEvent({
+  summary,
+  description,
+  startISO,
+  endISO,
+  timezone = "Asia/Almaty",
+  attendees = [],
+  location,
+  calendarId = "primary",
+  createMeet = false, // true → создать Meet-ссылку
+}) {
+  if (!summary || !startISO || !endISO) {
+    throw new Error("summary, startISO, endISO обязательны");
+  }
+
+  const cal = await calendarClient();
+
+  const requestBody = {
+    summary,
+    description,
+    location,
+    start: { dateTime: startISO, timeZone: timezone },
+    end:   { dateTime: endISO,   timeZone: timezone },
+    attendees: (attendees || [])
+      .filter(Boolean)
+      .map((e) => ({ email: String(e).trim() })),
+  };
+
+  const insertParams = { calendarId, requestBody };
+
+  if (createMeet) {
+    requestBody.conferenceData = {
+      createRequest: { requestId: genId() },
+    };
+    insertParams.conferenceDataVersion = 1;
+  }
+
+  const { data } = await cal.events.insert(insertParams);
+  return data; // содержит id, htmlLink, hangoutLink (если createMeet), etc.
+}
+
+function genId() {
+  return Math.random().toString(36).slice(2) + Date.now().toString(36);
+}
+
+
 // ВСТАВЬ рядом с ensureAccess() и calendarClient()
 
 async function authClient() {
@@ -205,7 +254,127 @@ app.get("/events/list", async (req, res) => {
   res.json(r.data.items.map(e => ({ id: e.id, summary: e.summary, start: e.start, end: e.end })));
 });
 
+app.post("/events/chatgpt", async (req, res) => {
+  try {
+    const {
+      prompt,
+      defaultTimezone = "Asia/Almaty",
+      defaultDurationMin = 60,
+      calendarId = "primary",
+    } = req.body;
 
+    if (!prompt) return res.status(400).json({ error: "prompt пустой" });
+
+    // инструмент для строгой структуры события
+    const tools = [
+      {
+        type: "function",
+        function: {
+          name: "set_event",
+          description:
+            "Извлеки событие из текста. Время строго ISO 8601 со смещением.",
+          parameters: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              description: { type: "string" },
+              startISO: {
+                type: "string",
+                description: "Напр. 2025-08-22T15:00:00+06:00",
+              },
+              endISO: { type: "string" },
+              durationMin: { type: "integer" },
+              timezone: { type: "string" },
+              attendees: { type: "array", items: { type: "string" } },
+              location: { type: "string" },
+            },
+            required: ["title", "startISO"],
+          },
+        },
+      },
+    ];
+
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      temperature: 0,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Ты планировщик встреч. Возвращай результат только через вызов set_event.",
+        },
+        {
+          role: "user",
+          content: `Часовой пояс по умолчанию: ${defaultTimezone}. Если нет конца — используй durationMin=${defaultDurationMin}.`,
+        },
+        { role: "user", content: prompt },
+      ],
+      tools,
+      tool_choice: "auto",
+    });
+
+    const call = completion.choices[0]?.message?.tool_calls?.[0];
+    if (!call || call.function?.name !== "set_event") {
+      return res
+        .status(422)
+        .json({ error: "не удалось распарсить событие из prompt" });
+    }
+
+    const args = JSON.parse(call.function.arguments || "{}");
+
+    const title = String(args.title || "").trim();
+    const description = args.description || "";
+    const timezone = args.timezone || defaultTimezone;
+    const startISO = args.startISO;
+    let endISO = args.endISO;
+
+    if (!title || !startISO) {
+      return res
+        .status(400)
+        .json({ error: "модель не вернула title/startISO" });
+    }
+
+    // если нет конца — считаем от длительности
+    if (!endISO) {
+      const dur =
+        Number.isFinite(args.durationMin) && args.durationMin > 0
+          ? Number(args.durationMin)
+          : defaultDurationMin;
+      const t = Date.parse(startISO);
+      if (Number.isNaN(t))
+        return res.status(400).json({ error: "startISO невалиден" });
+      endISO = new Date(t + dur * 60 * 1000).toISOString();
+    }
+
+    const attendees = Array.isArray(args.attendees) ? args.attendees : [];
+    const location = args.location || undefined;
+
+    const data = await createCalendarEvent({
+      summary: title,
+      description,
+      startISO,
+      endISO,
+      timezone,
+      attendees,
+      location,
+      calendarId,
+    });
+
+    res.json({
+      id: data.id,
+      link: data.htmlLink,
+      calendarId,
+      title,
+      startISO,
+      endISO,
+      timezone,
+      attendees,
+      location,
+    });
+  } catch (e) {
+    res.status(500).json({ error: String(e) });
+  }
+});
 // ===== Health =====
 app.get("/health", (_req, res) => res.json({ ok: true }));
 
