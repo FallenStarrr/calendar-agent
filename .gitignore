@@ -40,5 +40,5 @@ Thumbs.db
 # Кэш
 .cache/
 
-./config/secrets.json
+config/secrets.json
 token_store.json
