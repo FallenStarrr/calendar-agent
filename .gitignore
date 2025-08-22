@@ -1,0 +1,44 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.eslintcache
+.nyc_output/
+
+# Сборка и артефакты
+dist/
+build/
+coverage/
+tsconfig.tsbuildinfo
+
+# Логи и временные файлы
+logs/
+*.log
+tmp/
+temp/
+*.pid
+*.pid.lock
+*.seed
+
+# Секреты и локальные конфиги
+.env
+.env.*
+!.env.example
+token_store.json
+*.local
+
+# Редакторы/IDE
+.vscode/
+.idea/
+
+# ОС мусор
+.DS_Store
+Thumbs.db
+
+# Кэш
+.cache/
+
+./config/secrets.json
+token_store.json
